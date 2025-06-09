@@ -17,10 +17,11 @@
 
 use std::cmp::{self};
 use std::collections::BinaryHeap;
+use std::collections::binary_heap::PeekMut;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 
-use crate::key::KeySlice;
+use crate::key::{Key, KeySlice};
 
 use super::StorageIterator;
 
@@ -59,7 +60,20 @@ pub struct MergeIterator<I: StorageIterator> {
 
 impl<I: StorageIterator> MergeIterator<I> {
     pub fn create(iters: Vec<Box<I>>) -> Self {
-        unimplemented!()
+        let mut heap = BinaryHeap::new();
+
+        for (i, it) in iters.into_iter().enumerate() {
+            if it.is_valid() {
+                heap.push(HeapWrapper(i, it));
+            }
+        }
+
+        let current = heap.pop();
+
+        Self {
+            iters: heap,
+            current,
+        }
     }
 }
 
@@ -69,18 +83,48 @@ impl<I: 'static + for<'a> StorageIterator<KeyType<'a> = KeySlice<'a>>> StorageIt
     type KeyType<'a> = KeySlice<'a>;
 
     fn key(&self) -> KeySlice {
-        unimplemented!()
+        self.current.as_ref().unwrap().1.key()
     }
 
     fn value(&self) -> &[u8] {
-        unimplemented!()
+        self.current.as_ref().unwrap().1.value()
     }
 
     fn is_valid(&self) -> bool {
-        unimplemented!()
+        self.current.is_some()
     }
 
     fn next(&mut self) -> Result<()> {
-        unimplemented!()
+        let mut current = self.current.take().unwrap(); // Should be ok.
+        let current_key = current.1.key();
+
+        while let Some(mut top) = self.iters.peek_mut() {
+            if top.1.key() == current_key {
+                if top.1.next().is_err() {
+                    // Need to pop here as well to avoid heap reordering on an invalid iterator
+                    PeekMut::pop(top);
+                    self.current = None;
+                    return Err(anyhow!("Error occurred from next"));
+                }
+                if !top.1.is_valid() {
+                    PeekMut::pop(top);
+                }
+            } else {
+                break;
+            }
+        }
+
+        if current.1.next().is_err() {
+            self.current = None;
+            return Err(anyhow!("Error occurred from next"));
+        }
+
+        if current.1.is_valid() {
+            self.iters.push(current);
+        }
+
+        self.current = self.iters.pop();
+
+        Ok(())
     }
 }
