@@ -11,18 +11,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-#![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
-#![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
-
-use std::iter::Skip;
 use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
 use anyhow::Result;
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
 use ouroboros::self_referencing;
 

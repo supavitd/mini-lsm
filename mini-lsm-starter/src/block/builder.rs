@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
-#![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
+use bytes::BufMut;
 
-use crate::key::{KeySlice, KeyVec};
+use crate::key::{Key, KeySlice, KeyVec};
 
 use super::Block;
 
@@ -32,25 +31,64 @@ pub struct BlockBuilder {
 }
 
 impl BlockBuilder {
+    const KEY_LEN_BYTE: usize = std::mem::size_of::<u16>();
+    const VALUE_LEN_BYTE: usize = std::mem::size_of::<u16>();
+
     /// Creates a new block builder.
     pub fn new(block_size: usize) -> Self {
-        unimplemented!()
+        Self {
+            offsets: Vec::new(),
+            data: Vec::new(),
+            block_size,
+            first_key: Key::new(),
+        }
     }
 
     /// Adds a key-value pair to the block. Returns false when the block is full.
     /// You may find the `bytes::BufMut` trait useful for manipulating binary data.
     #[must_use]
     pub fn add(&mut self, key: KeySlice, value: &[u8]) -> bool {
-        unimplemented!()
+        let entry_size = key.len() + value.len() + Self::KEY_LEN_BYTE + Self::VALUE_LEN_BYTE;
+
+        let current_block_size =
+            self.data.len() + (self.offsets.len() * std::mem::size_of::<u16>());
+
+        if !self.first_key.is_empty() && current_block_size + entry_size > self.block_size {
+            println!(
+                "Block is full. {} {}",
+                current_block_size + entry_size,
+                self.block_size
+            );
+            return false;
+        }
+
+        if self.first_key.is_empty() {
+            self.first_key.append(key.raw_ref());
+        }
+
+        // Offset block
+        let offset = u16::try_from(self.data.len()).unwrap();
+        self.offsets.push(offset);
+
+        // Entry block
+        self.data.put_u16_le(key.len().try_into().unwrap());
+        self.data.put_slice(key.raw_ref());
+        self.data.put_u16_le(value.len().try_into().unwrap());
+        self.data.put_slice(value);
+
+        true
     }
 
     /// Check if there is no key-value pair in the block.
     pub fn is_empty(&self) -> bool {
-        unimplemented!()
+        self.first_key.is_empty()
     }
 
     /// Finalize the block.
     pub fn build(self) -> Block {
-        unimplemented!()
+        Block {
+            data: self.data,
+            offsets: self.offsets,
+        }
     }
 }
