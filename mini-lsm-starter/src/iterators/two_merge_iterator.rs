@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
-#![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
-
 use anyhow::Result;
 
 use super::StorageIterator;
@@ -24,7 +21,6 @@ use super::StorageIterator;
 pub struct TwoMergeIterator<A: StorageIterator, B: StorageIterator> {
     a: A,
     b: B,
-    // Add fields as need
 }
 
 impl<
@@ -33,7 +29,7 @@ impl<
 > TwoMergeIterator<A, B>
 {
     pub fn create(a: A, b: B) -> Result<Self> {
-        unimplemented!()
+        Ok(Self { a, b })
     }
 }
 
@@ -45,18 +41,60 @@ impl<
     type KeyType<'a> = A::KeyType<'a>;
 
     fn key(&self) -> Self::KeyType<'_> {
-        unimplemented!()
+        if !self.a.is_valid() {
+            return self.b.key();
+        }
+
+        if !self.b.is_valid() {
+            return self.a.key();
+        }
+
+        if self.a.key() <= self.b.key() {
+            self.a.key()
+        } else {
+            self.b.key()
+        }
     }
 
     fn value(&self) -> &[u8] {
-        unimplemented!()
+        if !self.a.is_valid() {
+            return self.b.value();
+        }
+
+        if !self.b.is_valid() {
+            return self.a.value();
+        }
+
+        if self.a.key() <= self.b.key() {
+            self.a.value()
+        } else {
+            self.b.value()
+        }
     }
 
     fn is_valid(&self) -> bool {
-        unimplemented!()
+        self.a.is_valid() || self.b.is_valid()
     }
 
     fn next(&mut self) -> Result<()> {
-        unimplemented!()
+        if !self.a.is_valid() {
+            return self.b.next();
+        }
+
+        if !self.b.is_valid() {
+            return self.a.next();
+        }
+
+        let ordering = self.a.key().cmp(&self.b.key());
+        match ordering {
+            std::cmp::Ordering::Less => self.a.next()?,
+            std::cmp::Ordering::Greater => self.b.next()?,
+            std::cmp::Ordering::Equal => {
+                self.a.next()?;
+                self.b.next()?;
+            }
+        }
+
+        Ok(())
     }
 }
