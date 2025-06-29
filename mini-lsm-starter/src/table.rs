@@ -20,6 +20,7 @@ mod builder;
 mod iterator;
 
 use std::fs::File;
+use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -53,7 +54,7 @@ impl BlockMeta {
         buf: &mut Vec<u8>,
     ) {
         for bm in block_meta.iter() {
-            buf.put_u16_le(u16::try_from(bm.offset).expect("Block meta offset must be u16."));
+            buf.put_u32_le(u32::try_from(bm.offset).expect("Block meta offset must be u32."));
             let first_key_len = u16::try_from(bm.first_key.len()).expect("Key len must be u16");
             let last_key_len = u16::try_from(bm.last_key.len()).expect("Key len must be u16");
 
@@ -69,7 +70,7 @@ impl BlockMeta {
         let mut block_meta_vec: Vec<BlockMeta> = Vec::new();
 
         while buf.has_remaining() {
-            let offset = buf.get_u16_le() as usize;
+            let offset = buf.get_u32_le() as usize;
             let first_key_len = buf.get_u16_le() as usize;
             let first_key = KeyBytes::from_bytes(buf.copy_to_bytes(first_key_len));
             let last_key_len = buf.get_u16_le() as usize;
@@ -280,5 +281,31 @@ impl SsTable {
 
     pub fn max_ts(&self) -> u64 {
         self.max_ts
+    }
+
+    pub fn range_overlap(&self, _lower: Bound<&[u8]>, _upper: Bound<&[u8]>) -> bool {
+        if matches!(_lower, Bound::Unbounded) && matches!(_upper, Bound::Unbounded) {
+            return true;
+        }
+        let lower_in_range = match (_lower) {
+            Bound::Included(lower) => {
+                self.first_key.raw_ref() <= lower && lower <= self.last_key.raw_ref()
+            }
+            Bound::Excluded(lower) => {
+                self.first_key.raw_ref() < lower && lower < self.last_key.raw_ref()
+            }
+            Bound::Unbounded => false,
+        };
+        let upper_in_range = match (_upper) {
+            Bound::Included(upper) => {
+                self.first_key.raw_ref() <= upper && upper <= self.last_key.raw_ref()
+            }
+            Bound::Excluded(upper) => {
+                self.first_key.raw_ref() < upper && upper < self.last_key.raw_ref()
+            }
+            Bound::Unbounded => false,
+        };
+
+        lower_in_range || upper_in_range
     }
 }

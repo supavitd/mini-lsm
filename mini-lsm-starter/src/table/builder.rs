@@ -86,6 +86,7 @@ impl SsTableBuilder {
         let block_meta_offset = self.data.len();
 
         let mut meta_buf: Vec<u8> = Vec::new();
+        // dbg!("Block meta {}", &self.meta);
         BlockMeta::encode_block_meta(&self.meta, &mut meta_buf);
 
         let mut data = self.data;

@@ -161,6 +161,10 @@ impl LsmStorageInner {
     }
 
     fn trigger_flush(&self) -> Result<()> {
+        let state_snapshot = { Arc::clone(&self.state.read()) };
+        if state_snapshot.imm_memtables.len() + 1 >= self.options.num_memtable_limit {
+            self.force_flush_next_imm_memtable()?;
+        }
         Ok(())
     }
 
