@@ -158,7 +158,24 @@ impl BlockIterator {
             self.block.data[value_offset + 1],
         ]) as usize;
 
-        self.key = key;
+        self.key = if idx == 0 {
+            key
+        } else {
+            let key_raw = key.raw_ref();
+            println!("Decompressing key length {}", key_raw.len());
+            let key_overlap = u16::from_le_bytes([key_raw[0], key_raw[1]]);
+            println!("Key overlap {}", key_overlap);
+            let rest_key = &key_raw[4..];
+            println!("Rest Key Len {}", rest_key.len());
+
+            let prefix = &self.first_key.raw_ref()[..key_overlap as usize];
+
+            let mut uncompressed_key = KeyVec::new();
+            uncompressed_key.append(prefix);
+            uncompressed_key.append(rest_key);
+
+            uncompressed_key
+        };
         self.idx = idx;
         self.value_range = (value_offset + len_size, value_offset + len_size + value_len);
     }

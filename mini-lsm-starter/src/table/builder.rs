@@ -26,6 +26,7 @@ use crate::{
     block::{Block, BlockBuilder, BlockIterator},
     key::{KeyBytes, KeySlice},
     lsm_storage::BlockCache,
+    table::bloom::Bloom,
 };
 
 /// Builds an SSTable from key-value pairs.
@@ -36,6 +37,7 @@ pub struct SsTableBuilder {
     data: Vec<u8>,
     pub(crate) meta: Vec<BlockMeta>,
     block_size: usize,
+    key_hashes: Vec<u32>,
 }
 
 impl SsTableBuilder {
@@ -48,6 +50,7 @@ impl SsTableBuilder {
             data: Vec::new(),
             meta: Vec::new(),
             block_size,
+            key_hashes: Vec::new(),
         }
     }
 
@@ -56,12 +59,11 @@ impl SsTableBuilder {
     /// Note: You should split a new block when the current block is full.(`std::mem::replace` may
     /// be helpful here)
     pub fn add(&mut self, key: KeySlice, value: &[u8]) {
-        if self.builder.add(key, value) {
-            return;
+        if !self.builder.add(key, value) {
+            self.flush_block();
+            let _ = self.builder.add(key, value);
         }
-
-        self.flush_block();
-        self.builder.add(key, value);
+        self.key_hashes.push(farmhash::fingerprint32(key.raw_ref()));
     }
 
     /// Get the estimated size of the SSTable.
@@ -85,7 +87,7 @@ impl SsTableBuilder {
 
         let block_meta_offset = self.data.len();
 
-        let mut meta_buf: Vec<u8> = Vec::new();
+        let mut meta_buf = Vec::<u8>::new();
         // dbg!("Block meta {}", &self.meta);
         BlockMeta::encode_block_meta(&self.meta, &mut meta_buf);
 
@@ -97,6 +99,20 @@ impl SsTableBuilder {
                 .to_le_bytes(),
         );
 
+        // Bloom filter meta section
+        let bloom_filter_offset = data.len();
+        let bits_per_key = Bloom::bloom_bits_per_key(self.key_hashes.len(), 0.01);
+        let bloom = Bloom::build_from_key_hashes(&self.key_hashes, bits_per_key);
+        let mut bloom_buf = Vec::<u8>::new();
+        bloom.encode(&mut bloom_buf);
+
+        data.append(&mut bloom_buf);
+        data.extend_from_slice(
+            &u32::try_from(bloom_filter_offset)
+                .expect("Bloom filter offset must be u32.")
+                .to_le_bytes(),
+        );
+
         let file_obj = FileObject::create(path.as_ref(), data)?;
 
         let sst = SsTable {
@@ -105,7 +121,7 @@ impl SsTableBuilder {
             block_meta_offset,
             id,
             block_cache,
-            bloom: None,
+            bloom: Some(bloom),
             first_key: KeyBytes::from_bytes(Bytes::copy_from_slice(&self.first_key)),
             last_key: KeyBytes::from_bytes(Bytes::copy_from_slice(&self.last_key)),
             max_ts: 0,

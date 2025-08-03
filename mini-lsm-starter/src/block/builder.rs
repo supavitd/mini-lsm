@@ -48,7 +48,14 @@ impl BlockBuilder {
     /// You may find the `bytes::BufMut` trait useful for manipulating binary data.
     #[must_use]
     pub fn add(&mut self, key: KeySlice, value: &[u8]) -> bool {
-        let entry_size = key.len() + value.len() + Self::KEY_LEN_BYTE + Self::VALUE_LEN_BYTE;
+        let compressed_key = if self.first_key.is_empty() {
+            key.raw_ref()
+        } else {
+            &self.compress_key(key)
+        };
+
+        let entry_size =
+            compressed_key.len() + value.len() + Self::KEY_LEN_BYTE + Self::VALUE_LEN_BYTE;
 
         let current_block_size =
             self.data.len() + (self.offsets.len() * std::mem::size_of::<u16>());
@@ -71,8 +78,9 @@ impl BlockBuilder {
         self.offsets.push(offset);
 
         // Entry block
-        self.data.put_u16_le(key.len().try_into().unwrap());
-        self.data.put_slice(key.raw_ref());
+        self.data
+            .put_u16_le(compressed_key.len().try_into().unwrap());
+        self.data.put_slice(compressed_key);
         self.data.put_u16_le(value.len().try_into().unwrap());
         self.data.put_slice(value);
 
@@ -90,5 +98,34 @@ impl BlockBuilder {
             data: self.data,
             offsets: self.offsets,
         }
+    }
+
+    fn compress_key(&self, key: KeySlice) -> Vec<u8> {
+        assert!(
+            !self.first_key.is_empty(),
+            "Cannot compress key since first key is not set."
+        );
+        let mut key_overlap: u16 = 0;
+        let min_size = self.first_key.len().min(key.len());
+
+        let first_key_raw = self.first_key.raw_ref();
+        let key_raw = key.raw_ref();
+        for i in 0..min_size {
+            if first_key_raw[i] == key_raw[i] {
+                key_overlap += 1;
+            } else {
+                break;
+            }
+        }
+
+        let key_rest =
+            u16::try_from(key.len() - key_overlap as usize).expect("Rest key len must be u16.");
+
+        let mut compressed = Vec::<u8>::new();
+        compressed.put_u16_le(key_overlap);
+        compressed.put_u16_le(key_rest);
+        compressed.extend_from_slice(&key_raw[key_overlap as usize..]);
+
+        compressed
     }
 }

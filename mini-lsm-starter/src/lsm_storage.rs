@@ -344,9 +344,16 @@ impl LsmStorageInner {
         let mut sst_iters = Vec::new();
         for sst_id in state.l0_sstables.iter() {
             let sst = Arc::clone(&state.sstables[sst_id]);
-            let sst_iter =
-                SsTableIterator::create_and_seek_to_key(sst, KeySlice::from_slice(_key))?;
-            sst_iters.push(Box::new(sst_iter));
+            if sst
+                .bloom
+                .as_ref()
+                // TODO: Find a nicer way to deal with hash. It should be abstracted away.
+                .is_some_and(|bloom| bloom.may_contain(farmhash::fingerprint32(&_key)))
+            {
+                let sst_iter =
+                    SsTableIterator::create_and_seek_to_key(sst, KeySlice::from_slice(_key))?;
+                sst_iters.push(Box::new(sst_iter));
+            }
         }
         let merge_iter = MergeIterator::create(sst_iters);
 
